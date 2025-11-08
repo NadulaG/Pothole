@@ -34,6 +34,7 @@ function App() {
   const [suggestions, setSuggestions] = useState([])
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [highlightIndex, setHighlightIndex] = useState(-1)
+  const [isSearchFocused, setIsSearchFocused] = useState(false)
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
@@ -130,7 +131,7 @@ function App() {
   // Fetch autocomplete suggestions when typing
   useEffect(() => {
     const q = search?.trim()
-    if (!q || q.length < 2) {
+    if (!isSearchFocused || !q || q.length < 2) {
       setSuggestions([])
       setShowSuggestions(false)
       setHighlightIndex(-1)
@@ -149,7 +150,7 @@ function App() {
       }
     }, 250)
     return () => clearTimeout(t)
-  }, [search])
+  }, [search, isSearchFocused])
 
   const selectSuggestion = (item) => {
     if (!item) return
@@ -193,8 +194,14 @@ function App() {
               setSearch(e.target.value)
               setShowSuggestions(true)
             }}
-            onFocus={() => setShowSuggestions(suggestions.length > 0)}
-            onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+            onFocus={() => {
+              setIsSearchFocused(true)
+              setShowSuggestions(suggestions.length > 0)
+            }}
+            onBlur={() => setTimeout(() => {
+              setIsSearchFocused(false)
+              setShowSuggestions(false)
+            }, 150)}
             onKeyDown={(e) => {
               if (e.key === 'ArrowDown') {
                 e.preventDefault()
