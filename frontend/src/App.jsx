@@ -132,6 +132,7 @@ function App() {
             placeholder="Search city or address"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && doSearch()}
             className="min-w-64 rounded border border-stone-700 bg-stone-800 px-3 py-2 text-sm focus:outline-none focus:ring focus:ring-amber-700"
           />
           <button className="rounded bg-amber-600 px-3 py-2 text-sm hover:bg-amber-700" onClick={doSearch}>Go</button>
@@ -147,10 +148,7 @@ function App() {
               {loading && <span>Loading…</span>}
             </div>
           </div>
-          <div className="mb-4">
-            <h2 className="mb-2 text-base">Heatmap</h2>
-            <p className="text-sm text-stone-400">Fixed settings: large radius, minimal blur, opacity ~55%, red palette.</p>
-          </div>
+          
           <div>
             <h2 className="mb-2 text-base">About</h2>
             <p className="text-sm text-stone-400">
