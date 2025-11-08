@@ -1,5 +1,4 @@
 venv/
 .env
 images_princeton/
-nj_images/
 .DS_Store
