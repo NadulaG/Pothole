@@ -1,0 +1,220 @@
+.submit-btn:hover {
+  background-color: var(--accent-dark);
+  border-color: white;
+}.pothole-container {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1rem;
+}
+
+.pothole-card {
+  width: 100%;
+  max-width: 42rem;
+  background-color: var(--card);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 2rem;
+}
+
+.card-header {
+  margin-bottom: 2rem;
+}
+
+.card-title {
+  font-size: 1.875rem;
+  font-weight: 700;
+  color: var(--card-foreground);
+  margin-bottom: 0.5rem;
+}
+
+.card-description {
+  font-size: 0.875rem;
+  color: var(--muted-foreground);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.form-label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--foreground);
+}
+
+.required {
+  color: #ef4444;
+}
+
+.upload-container {
+  width: 100%;
+}
+
+.upload-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem 1.5rem;
+  border: 2px dashed rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  background-color: var(--input);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.upload-area:hover {
+  border-color: var(--primary);
+  background-color: var(--secondary);
+}
+
+.upload-icon {
+  width: 3rem;
+  height: 3rem;
+  color: var(--muted-foreground);
+  margin-bottom: 1rem;
+}
+
+.upload-text {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--foreground);
+  margin-bottom: 0.25rem;
+}
+
+.upload-subtext {
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+
+.file-input {
+  display: none;
+}
+
+.image-preview-container {
+  position: relative;
+  width: 100%;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.image-preview {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 8px;
+}
+
+.remove-image-btn {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  background-color: rgba(239, 68, 68, 0.9);
+  border: none;
+  border-radius: 50%;
+  width: 2rem;
+  height: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.remove-image-btn:hover {
+  background-color: rgba(220, 38, 38, 1);
+}
+
+.remove-icon {
+  width: 1rem;
+  height: 1rem;
+  color: white;
+}
+
+.textarea {
+  width: 100%;
+  padding: 0.75rem;
+  background-color: var(--input);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: var(--foreground);
+  font-size: 0.875rem;
+  resize: vertical;
+  font-family: inherit;
+  line-height: 1.5;
+}
+
+.textarea:focus {
+  outline: none;
+  border-color: var(--ring);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.textarea::placeholder {
+  color: var(--muted-foreground);
+}
+
+.input {
+  width: 100%;
+  padding: 0.75rem;
+  background-color: var(--input);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: var(--foreground);
+  font-size: 0.875rem;
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--ring);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.input::placeholder {
+  color: var(--muted-foreground);
+}
+
+.submit-btn {
+  width: 100%;
+  padding: 0.75rem 1.5rem;
+  background-color: var(--primary);
+  color: var(--primary-foreground);
+  border: 2px solid transparent;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.submit-btn:hover {
+  background-color: var(--accent);
+}
+
+.submit-btn:active {
+  transform: scale(0.98);
+}
+
+@media (max-width: 640px) {
+  .pothole-card {
+    padding: 1.5rem;
+  }
+
+  .card-title {
+    font-size: 1.5rem;
+  }
+
+  .upload-area {
+    padding: 2rem 1rem;
+  }
+}
