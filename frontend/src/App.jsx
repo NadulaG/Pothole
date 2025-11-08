@@ -39,6 +39,8 @@ function App() {
   const mapRef = useRef(null);
   const heatRef = useRef(null);
   const searchInputRef = useRef(null);
+  const roadDataRef = useRef({ ways: [] });
+  const highlightGroupRef = useRef(null);
   const [search, setSearch] = useState("Princeton, NJ");
   const [suggestions, setSuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -58,36 +60,150 @@ function App() {
     loadSample();
   }, []);
 
+  // Fetch OSM roads (highways) for current bounds via Overpass
+  const fetchRoadsForBounds = async (bounds) => {
+    const south = bounds.getSouth();
+    const west = bounds.getWest();
+    const north = bounds.getNorth();
+    const east = bounds.getEast();
+    const q = `[
+      out:json][timeout:25];
+      (
+        way["highway"](${south},${west},${north},${east});
+      );
+      (._;>;);
+      out body;`;
+    try {
+      const resp = await fetch("https://overpass-api.de/api/interpreter", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: `data=${encodeURIComponent(q)}`,
+      });
+      const json = await resp.json();
+      const nodes = new Map();
+      for (const el of json.elements || []) {
+        if (el.type === "node") nodes.set(el.id, { lat: el.lat, lon: el.lon });
+      }
+      const ways = [];
+      for (const el of json.elements || []) {
+        if (el.type === "way" && Array.isArray(el.nodes)) {
+          const coords = el.nodes
+            .map((nid) => nodes.get(nid))
+            .filter(Boolean)
+            .map((n) => [n.lat, n.lon]);
+          if (coords.length >= 2) ways.push(coords);
+        }
+      }
+      roadDataRef.current.ways = ways;
+    } catch (e) {
+      console.error("Failed to fetch roads from Overpass", e);
+      roadDataRef.current.ways = [];
+    }
+  };
+
+  // Find short segment along the nearest road to a point (approximate planar calc)
+  const closestSegmentNearPoint = (lat, lon, ways) => {
+    let best = null;
+    let bestDist2 = Infinity;
+    const toRad = Math.PI / 180;
+    const cosLat = Math.cos(lat * toRad);
+    const proj = (la, lo) => [lo * cosLat, la];
+    const P = proj(lat, lon);
+    const lerp = (A, B, t) => [A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t];
+    for (const coords of ways) {
+      for (let i = 0; i < coords.length - 1; i++) {
+        const A = coords[i];
+        const B = coords[i + 1];
+        const Ap = proj(A[0], A[1]);
+        const Bp = proj(B[0], B[1]);
+        const vx = Bp[0] - Ap[0];
+        const vy = Bp[1] - Ap[1];
+        const wx = P[0] - Ap[0];
+        const wy = P[1] - Ap[1];
+        const vv = vx * vx + vy * vy;
+        if (vv === 0) continue;
+        let t = (wx * vx + wy * vy) / vv;
+        if (t < 0) t = 0;
+        else if (t > 1) t = 1;
+        const Cx = Ap[0] + vx * t;
+        const Cy = Ap[1] + vy * t;
+        const dx = P[0] - Cx;
+        const dy = P[1] - Cy;
+        const d2 = dx * dx + dy * dy;
+        if (d2 < bestDist2) {
+          bestDist2 = d2;
+          const t0 = Math.max(0, t - 0.1);
+          const t1 = Math.min(1, t + 0.1);
+          const p0 = lerp([A[0], A[1]], [B[0], B[1]], t0);
+          const p1 = lerp([A[0], A[1]], [B[0], B[1]], t1);
+          best = [p0, p1];
+        }
+      }
+    }
+    return best;
+  };
+
+  // Build street-line highlights instead of heat circles
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    // Remove existing heat layer
+    // Remove existing heat layer if present
     if (heatRef.current) {
       map.removeLayer(heatRef.current);
       heatRef.current = null;
     }
-    if (points && points.length) {
-      const ensureHeat = async () => {
-        if (!L.heatLayer) {
-          await import("leaflet.heat");
-        }
-        // Wait until the map has a valid canvas size
-        let tries = 0;
-        while (true) {
-          const size = map.getSize();
-          if (size.x > 0 && size.y > 0) break;
-          map.invalidateSize();
-          await new Promise((resolve) => setTimeout(resolve, 50));
-          tries += 1;
-          if (tries > 40) break; // safety break after ~2s
-        }
-        const layer = L.heatLayer(points, heatOptions);
-        layer.addTo(map);
-        heatRef.current = layer;
-      };
-      ensureHeat();
+    // Clear previous highlights
+    if (highlightGroupRef.current) {
+      map.removeLayer(highlightGroupRef.current);
+      highlightGroupRef.current = null;
     }
-  }, [points, heatOptions]);
+    const pointsArr = points;
+    if (!pointsArr || pointsArr.length === 0) return;
+    const setup = async () => {
+      // Ensure roads are available for current bounds
+      if (!roadDataRef.current.ways || roadDataRef.current.ways.length === 0) {
+        const b = map.getBounds();
+        await fetchRoadsForBounds(b);
+      }
+      const ways = roadDataRef.current.ways || [];
+      const group = L.layerGroup();
+      if (ways.length === 0) {
+        // Fallback: draw small markers if roads not available
+        for (const [la, lo] of pointsArr) {
+          L.circleMarker([la, lo], {
+            radius: 3,
+            color: "#ff6b6b",
+            weight: 2,
+            opacity: 0.9,
+            fillOpacity: 0.9,
+          }).addTo(group);
+        }
+      } else {
+        for (const [la, lo] of pointsArr) {
+          const seg = closestSegmentNearPoint(la, lo, ways);
+          if (seg) {
+            L.polyline(seg, {
+              color: "#ff6b6b",
+              weight: 5,
+              opacity: 0.85,
+            }).addTo(group);
+          } else {
+            // If no segment is near, drop a tiny marker to indicate location
+            L.circleMarker([la, lo], {
+              radius: 2,
+              color: "#ff6b6b",
+              weight: 2,
+              opacity: 0.8,
+              fillOpacity: 0.8,
+            }).addTo(group);
+          }
+        }
+      }
+      group.addTo(map);
+      highlightGroupRef.current = group;
+    };
+    setup();
+  }, [points]);
 
   const loadSample = async () => {
     try {
