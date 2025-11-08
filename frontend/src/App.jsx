@@ -14,18 +14,19 @@ const DEFAULT_ZOOM = 13
 
 function App() {
   const [points, setPoints] = useState([])
-  const [radius, setRadius] = useState(22)
-  const [blur, setBlur] = useState(16)
-  const [minOpacity, setMinOpacity] = useState(0.25)
-  const [max, setMax] = useState(1.0)
-  const [palette, setPalette] = useState('earth')
-  const gradients = {
-    earth: { 0.0: '#305f2c', 0.5: '#6b8f5c', 0.8: '#a16b3a', 1.0: '#d4a373' },
-    forest: { 0.0: '#0b3d2e', 0.33: '#1f5d3b', 0.66: '#76a365', 1.0: '#c5d7a5' },
-    desert: { 0.0: '#7a5e3a', 0.5: '#c49a6c', 0.8: '#e0c080', 1.0: '#f2d16b' },
-  }
-  const gradient = gradients[palette]
-  const heatOptions = useMemo(() => ({ radius, blur, minOpacity, max, gradient }), [radius, blur, minOpacity, max, palette])
+  // Fixed heatmap parameters per request
+  const HEAT_RADIUS = 50 // max radius
+  const HEAT_BLUR = 5 // minimum blur
+  const HEAT_MIN_OPACITY = 0.55 // slightly above 50%
+  const HEAT_MAX = 3 // maximum cap
+  const gradient = { 0.0: '#3b0b0b', 0.33: '#7a1212', 0.66: '#cf3a3a', 1.0: '#ff6b6b' }
+  const heatOptions = useMemo(() => ({
+    radius: HEAT_RADIUS,
+    blur: HEAT_BLUR,
+    minOpacity: HEAT_MIN_OPACITY,
+    max: HEAT_MAX,
+    gradient,
+  }), [])
   const mapRef = useRef(null)
   const heatRef = useRef(null)
   const [search, setSearch] = useState('Princeton, NJ')
@@ -148,30 +149,7 @@ function App() {
           </div>
           <div className="mb-4">
             <h2 className="mb-2 text-base">Heatmap</h2>
-            <div className="my-2 flex items-center justify-between gap-2">
-              <span className="text-sm">Radius</span>
-              <input type="range" min="5" max="50" value={radius} onChange={(e) => setRadius(Number(e.target.value))} className="w-40" />
-            </div>
-            <div className="my-2 flex items-center justify-between gap-2">
-              <span className="text-sm">Blur</span>
-              <input type="range" min="5" max="50" value={blur} onChange={(e) => setBlur(Number(e.target.value))} className="w-40" />
-            </div>
-            <div className="my-2 flex items-center justify-between gap-2">
-              <span className="text-sm">Min Opacity</span>
-              <input type="range" min="0" max="1" step="0.05" value={minOpacity} onChange={(e) => setMinOpacity(Number(e.target.value))} className="w-40" />
-            </div>
-            <div className="my-2 flex items-center justify-between gap-2">
-              <span className="text-sm">Max</span>
-              <input type="range" min="0.1" max="3" step="0.1" value={max} onChange={(e) => setMax(Number(e.target.value))} className="w-40" />
-            </div>
-            <div className="my-2 flex items-center justify-between gap-2">
-              <span className="text-sm">Palette</span>
-              <select value={palette} onChange={(e) => setPalette(e.target.value)} className="rounded border border-stone-700 bg-stone-800 px-2 py-1 text-sm">
-                <option value="earth">Earth</option>
-                <option value="forest">Forest</option>
-                <option value="desert">Desert</option>
-              </select>
-            </div>
+            <p className="text-sm text-stone-400">Fixed settings: large radius, minimal blur, opacity ~55%, red palette.</p>
           </div>
           <div>
             <h2 className="mb-2 text-base">About</h2>
