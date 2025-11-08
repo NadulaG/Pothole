@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import 'leaflet/dist/leaflet.css'
-import L from 'leaflet'
+import * as Leaflet from 'leaflet'
+const L = Leaflet
+if (typeof window !== 'undefined') {
+  // Ensure Leaflet is available globally for plugins like leaflet.heat
+  // eslint-disable-next-line no-undef
+  window.L = Leaflet
+}
 import Legend from './components/Legend.jsx'
 
 const DEFAULT_CENTER = [40.3439, -74.6562] // Princeton area
@@ -32,6 +38,8 @@ function App() {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
     }).addTo(map)
     mapRef.current = map
+    // Auto-load sample once the map is initialized
+    loadSample()
   }, [])
 
   useEffect(() => {
@@ -43,9 +51,25 @@ function App() {
       heatRef.current = null
     }
     if (points && points.length) {
-      const layer = L.heatLayer(points, heatOptions)
-      layer.addTo(map)
-      heatRef.current = layer
+      const ensureHeat = async () => {
+        if (!L.heatLayer) {
+          await import('leaflet.heat')
+        }
+        // Wait until the map has a valid canvas size
+        let tries = 0
+        while (true) {
+          const size = map.getSize()
+          if (size.x > 0 && size.y > 0) break
+          map.invalidateSize()
+          await new Promise((resolve) => setTimeout(resolve, 50))
+          tries += 1
+          if (tries > 40) break // safety break after ~2s
+        }
+        const layer = L.heatLayer(points, heatOptions)
+        layer.addTo(map)
+        heatRef.current = layer
+      }
+      ensureHeat()
     }
   }, [points, heatOptions])
 
@@ -61,23 +85,7 @@ function App() {
     setLoading(false)
   }
 
-  const onFileChange = (e) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    const reader = new FileReader()
-    reader.onload = () => {
-      try {
-        setLoading(true)
-        const data = JSON.parse(reader.result)
-        setPoints(normalize(data))
-      } catch (err) {
-        console.error('Invalid JSON file', err)
-        alert('Invalid JSON format. Expected array of {lat,lon,intensity} or [lat,lon,intensity].')
-      }
-      setLoading(false)
-    }
-    reader.readAsText(file)
-  }
+  // Removed: auto-load effect; now called after map initialization above
 
   const normalize = (data) => {
     if (!Array.isArray(data)) return []
@@ -132,18 +140,11 @@ function App() {
         <aside className="overflow-auto border-r border-stone-700 bg-stone-900 p-3">
           <div className="mb-4">
             <h2 className="mb-2 text-base">Data</h2>
-            <div className="flex items-center justify-between gap-2">
-              <button className="rounded bg-stone-700 px-3 py-2 text-sm hover:bg-stone-600" onClick={loadSample}>Load Sample</button>
-              <label className="inline-block">
-                <input type="file" accept="application/json" className="hidden" onChange={onFileChange} />
-                <span className="cursor-pointer rounded bg-stone-700 px-3 py-2 text-sm hover:bg-stone-600">Upload JSON</span>
-              </label>
-            </div>
+            <p className="text-sm text-stone-400">Using preloaded sample dataset.</p>
             <div className="mt-2 flex gap-3 text-sm text-stone-400">
               <span>{points.length} points</span>
               {loading && <span>Loading…</span>}
             </div>
-            <p className="mt-2 text-sm text-stone-400">JSON: [lat, lon, intensity] or {'{lat, lon, intensity}'}</p>
           </div>
           <div className="mb-4">
             <h2 className="mb-2 text-base">Heatmap</h2>

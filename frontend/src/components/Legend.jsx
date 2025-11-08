@@ -5,7 +5,7 @@ export default function Legend({ gradient }) {
     .join(', ')})`
 
   return (
-    <div className="absolute left-4 bottom-4 w-56 rounded-lg border border-stone-700 bg-black/50 backdrop-blur p-2">
+    <div className="absolute left-4 bottom-4 w-56 rounded-lg border border-stone-700 bg-black/50 backdrop-blur p-2 z-[1000] pointer-events-none">
       <div className="text-sm text-stone-200 mb-1">Intensity</div>
       <div className="h-2 rounded-full" style={{ backgroundImage: gradientCss }} />
       <div className="flex justify-between text-xs text-stone-400 mt-1">
