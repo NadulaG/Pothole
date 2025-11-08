@@ -1,0 +1,193 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
+import 'leaflet/dist/leaflet.css'
+import L from 'leaflet'
+import Legend from './components/Legend.jsx'
+
+const DEFAULT_CENTER = [40.3439, -74.6562] // Princeton area
+const DEFAULT_ZOOM = 13
+
+function App() {
+  const [points, setPoints] = useState([])
+  const [radius, setRadius] = useState(22)
+  const [blur, setBlur] = useState(16)
+  const [minOpacity, setMinOpacity] = useState(0.25)
+  const [max, setMax] = useState(1.0)
+  const [palette, setPalette] = useState('earth')
+  const gradients = {
+    earth: { 0.0: '#305f2c', 0.5: '#6b8f5c', 0.8: '#a16b3a', 1.0: '#d4a373' },
+    forest: { 0.0: '#0b3d2e', 0.33: '#1f5d3b', 0.66: '#76a365', 1.0: '#c5d7a5' },
+    desert: { 0.0: '#7a5e3a', 0.5: '#c49a6c', 0.8: '#e0c080', 1.0: '#f2d16b' },
+  }
+  const gradient = gradients[palette]
+  const heatOptions = useMemo(() => ({ radius, blur, minOpacity, max, gradient }), [radius, blur, minOpacity, max, palette])
+  const mapRef = useRef(null)
+  const heatRef = useRef(null)
+  const [search, setSearch] = useState('Princeton, NJ')
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (mapRef.current) return
+    const map = L.map('map').setView(DEFAULT_CENTER, DEFAULT_ZOOM)
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    }).addTo(map)
+    mapRef.current = map
+  }, [])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    // Remove existing heat layer
+    if (heatRef.current) {
+      map.removeLayer(heatRef.current)
+      heatRef.current = null
+    }
+    if (points && points.length) {
+      const layer = L.heatLayer(points, heatOptions)
+      layer.addTo(map)
+      heatRef.current = layer
+    }
+  }, [points, heatOptions])
+
+  const loadSample = async () => {
+    try {
+      setLoading(true)
+      const res = await fetch('/sample-heatmap.json')
+      const data = await res.json()
+      setPoints(normalize(data))
+    } catch (e) {
+      console.error('Failed to load sample dataset', e)
+    }
+    setLoading(false)
+  }
+
+  const onFileChange = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      try {
+        setLoading(true)
+        const data = JSON.parse(reader.result)
+        setPoints(normalize(data))
+      } catch (err) {
+        console.error('Invalid JSON file', err)
+        alert('Invalid JSON format. Expected array of {lat,lon,intensity} or [lat,lon,intensity].')
+      }
+      setLoading(false)
+    }
+    reader.readAsText(file)
+  }
+
+  const normalize = (data) => {
+    if (!Array.isArray(data)) return []
+    return data.map((d) => {
+      if (Array.isArray(d)) {
+        const [lat, lon, intensity] = d
+        return [Number(lat), Number(lon), Number(intensity ?? 0.5)]
+      }
+      const lat = Number(d.lat ?? d.latitude)
+      const lon = Number(d.lon ?? d.lng ?? d.longitude)
+      const intensity = Number(d.intensity ?? d.weight ?? 0.5)
+      return [lat, lon, intensity]
+    }).filter(([lat, lon]) => Number.isFinite(lat) && Number.isFinite(lon))
+  }
+
+  const doSearch = async () => {
+    const q = search?.trim()
+    if (!q) return
+    try {
+      const resp = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=1`)
+      const arr = await resp.json()
+      if (Array.isArray(arr) && arr.length > 0) {
+        const { lat, lon } = arr[0]
+        const map = mapRef.current
+        if (map) map.setView([Number(lat), Number(lon)], 13)
+      } else {
+        alert('Location not found')
+      }
+    } catch (e) {
+      console.error('Search failed', e)
+    }
+  }
+
+  return (
+    <div className="flex flex-col h-screen bg-stone-900 text-stone-100">
+      <header className="flex items-center justify-between px-4 py-2 border-b border-stone-700 bg-stone-900/70 backdrop-blur">
+        <div className="flex items-center gap-2">
+          <h1 className="text-lg -tracking-tight">Pothole</h1>
+        </div>
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            placeholder="Search city or address"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="min-w-64 rounded border border-stone-700 bg-stone-800 px-3 py-2 text-sm focus:outline-none focus:ring focus:ring-amber-700"
+          />
+          <button className="rounded bg-amber-600 px-3 py-2 text-sm hover:bg-amber-700" onClick={doSearch}>Go</button>
+        </div>
+      </header>
+      <div className="grid grid-cols-[320px_1fr] h-[calc(100vh-56px)] min-h-0">
+        <aside className="overflow-auto border-r border-stone-700 bg-stone-900 p-3">
+          <div className="mb-4">
+            <h2 className="mb-2 text-base">Data</h2>
+            <div className="flex items-center justify-between gap-2">
+              <button className="rounded bg-stone-700 px-3 py-2 text-sm hover:bg-stone-600" onClick={loadSample}>Load Sample</button>
+              <label className="inline-block">
+                <input type="file" accept="application/json" className="hidden" onChange={onFileChange} />
+                <span className="cursor-pointer rounded bg-stone-700 px-3 py-2 text-sm hover:bg-stone-600">Upload JSON</span>
+              </label>
+            </div>
+            <div className="mt-2 flex gap-3 text-sm text-stone-400">
+              <span>{points.length} points</span>
+              {loading && <span>Loading…</span>}
+            </div>
+            <p className="mt-2 text-sm text-stone-400">JSON: [lat, lon, intensity] or {'{lat, lon, intensity}'}</p>
+          </div>
+          <div className="mb-4">
+            <h2 className="mb-2 text-base">Heatmap</h2>
+            <div className="my-2 flex items-center justify-between gap-2">
+              <span className="text-sm">Radius</span>
+              <input type="range" min="5" max="50" value={radius} onChange={(e) => setRadius(Number(e.target.value))} className="w-40" />
+            </div>
+            <div className="my-2 flex items-center justify-between gap-2">
+              <span className="text-sm">Blur</span>
+              <input type="range" min="5" max="50" value={blur} onChange={(e) => setBlur(Number(e.target.value))} className="w-40" />
+            </div>
+            <div className="my-2 flex items-center justify-between gap-2">
+              <span className="text-sm">Min Opacity</span>
+              <input type="range" min="0" max="1" step="0.05" value={minOpacity} onChange={(e) => setMinOpacity(Number(e.target.value))} className="w-40" />
+            </div>
+            <div className="my-2 flex items-center justify-between gap-2">
+              <span className="text-sm">Max</span>
+              <input type="range" min="0.1" max="3" step="0.1" value={max} onChange={(e) => setMax(Number(e.target.value))} className="w-40" />
+            </div>
+            <div className="my-2 flex items-center justify-between gap-2">
+              <span className="text-sm">Palette</span>
+              <select value={palette} onChange={(e) => setPalette(e.target.value)} className="rounded border border-stone-700 bg-stone-800 px-2 py-1 text-sm">
+                <option value="earth">Earth</option>
+                <option value="forest">Forest</option>
+                <option value="desert">Desert</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <h2 className="mb-2 text-base">About</h2>
+            <p className="text-sm text-stone-400">
+              Every year, over 25% of U.S. roads are rated "poor" or "mediocre", and potholes alone cost drivers over $26 billion annually in vehicle repairs. But in most countries, there's no scalable way to monitor road damage—until now.
+              Pothole automatically maps road quality across the world by pulling Google Street View imagery and running it through a machine learning model trained to detect potholes and cracks.
+              We then aggregate this data into a real-time heatmap that helps cities prioritize repairs and drivers avoid hazards.
+            </p>
+          </div>
+        </aside>
+        <main className="relative min-h-0">
+          <div id="map" className="h-full" />
+          <Legend gradient={gradient} />
+        </main>
+      </div>
+    </div>
+  )
+}
+
+export default App
