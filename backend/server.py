@@ -6,11 +6,11 @@ from dotenv import load_dotenv
 from street_view import generate_folder
 from street_hazard_upload import upload_local_file_to_supabase
 from werkzeug.exceptions import BadRequest
-import os, re, json, threading
-
 import os
-from flask_cors import CORS
 import re
+import json
+import threading
+from flask_cors import CORS
 
 load_dotenv()
 
