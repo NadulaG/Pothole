@@ -12,6 +12,17 @@ import json
 import threading
 from flask_cors import CORS
 from datetime import datetime, timezone
+from dedalus_labs import AsyncDedalus, DedalusRunner
+import asyncio 
+
+# --- Configure your hosted MCP server + model ---
+MCP_SERVERS = [os.getenv("DEDALUS_MCP_SLUG", "ez2103/pothole-mcp-server")]  # <-- put your slug here
+MODEL = os.getenv("DEDALUS_MODEL", "openai/gpt-5-mini")
+
+# Reuse one client/runner for all requests
+_client = AsyncDedalus()
+_runner = DedalusRunner(_client)
+
 
 load_dotenv()
 
@@ -259,6 +270,70 @@ def survey():
         "ok": True,
         "message": "Survey processing started in the background."
     }), 202
+
+
+
+@app.route('/hazard_agent', methods=['POST'])
+def hazard_agent():
+    data = request.get_json(silent=True) or {}
+
+    hazard_id = data.get("hazard_id")
+    if not hazard_id:
+        return jsonify({"error": "Missing required field: hazard_id"}), 400
+
+    # 1. Fetch hazard from Supabase
+    resp = supabase.table("hazards").select("*").eq("id", hazard_id).limit(1).execute()
+    rows = resp.data or []
+    if not rows:
+        return jsonify({"error": "Hazard not found", "hazard_id": hazard_id}), 404
+    hazard = rows[0]
+
+    # 2. Build prompt
+    hazard_json = json.dumps(hazard, default=str, indent=2)
+    prompt = f"""
+You have a hazard record from the database. Do NOT classify anything.
+Use only the MCP tools `estimate_repair_plan` and `project_worsening`.
+
+Hazard record:
+{hazard_json}
+
+Tasks:
+1) Call estimate_repair_plan(hazard_id="{hazard_id}").
+2) Call project_worsening(hazard_id="{hazard_id}", horizon_days=30).
+3) Return JSON:
+{{
+  "hazard_id": "{hazard_id}",
+  "plan": <repair_plan>,
+  "projection_30d": <projection_data>
+}}
+""".strip()
+
+    # 3. Run agent
+    async def run_agent():
+        res = await _runner.run(
+            input=prompt,
+            model=MODEL,
+            mcp_servers=MCP_SERVERS,
+            stream=False
+        )
+        return res.final_output
+
+    try:
+        output_text = asyncio.run(run_agent())
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        output_text = loop.run_until_complete(run_agent())
+        loop.close()
+
+    # 4. Try to return valid JSON
+    try:
+        return jsonify(json.loads(output_text))
+    except:
+        return jsonify({
+            "hazard_id": hazard_id,
+            "raw_agent_output": output_text
+        })
+
 
 if __name__ == '__main__':
     app.run(debug=True, port=5001)
