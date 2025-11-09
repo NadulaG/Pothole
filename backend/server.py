@@ -8,6 +8,11 @@ from street_hazard_upload import upload_local_file_to_supabase
 from werkzeug.exceptions import BadRequest
 import os, re, json, threading
 
+import os
+from flask_cors import CORS
+import re
+
+load_dotenv()
 
 # Initialize
 url = os.getenv("SUPABASE_URL")
@@ -17,9 +22,26 @@ supabase: Client = create_client(url, key)
 
 app = Flask(__name__)
 
-# Example: POST endpoint
-@app.route('/submit', methods=['POST'])
+# CORS: allow Vite dev ports and handle preflight
+CORS(
+    app,
+    origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
+    ],
+    supports_credentials=True,
+    allow_headers=["Content-Type", "Authorization"],
+    methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+)
+
+# Example: POST endpoint (with preflight support)
+@app.route('/submit', methods=['POST', 'OPTIONS'])
 def submit_image(): 
+    if request.method == 'OPTIONS':
+        # Flask-CORS should handle this, but explicitly return OK to avoid 403s
+        return ('', 204)
     data = request.get_json()
     url = data.get("url")
     lat = data.get("lat")
@@ -27,6 +49,42 @@ def submit_image():
     location = coord_to_address(lat, lng) # Convert coordinates to address
     analysis = analyze_hazard_image(url, location) # Analyze image with Gemini
 
+    # Helper to normalize severity into an int within [0, 10];
+    # return None if it cannot be parsed so DB default can apply.
+    def _normalize_severity(value):
+        if value is None:
+            return None
+        try:
+            # Accept numbers directly
+            if isinstance(value, (int, float)):
+                val = int(round(value))
+            else:
+                # Attempt to extract a number from strings like "7", "7/10", "severity: 5"
+                import re
+                m = re.search(r"(-?\d+(?:\.\d+)?)", str(value))
+                if not m:
+                    return None
+                val = int(round(float(m.group(1))))
+            # Clamp to valid range
+            if val < 0:
+                val = 0
+            if val > 10:
+                val = 10
+            return val
+        except Exception:
+            return None
+
+    # Build insert payload; if Gemini failed, still insert minimal row and let defaults apply
+    severity = _normalize_severity(analysis.get("severity")) if isinstance(analysis, dict) else None
+    description = (analysis.get("description") if isinstance(analysis, dict) else None)
+
+    # Do not insert any row where description is null/missing
+    if description is None:
+        return jsonify({
+            "error": "Description missing from analysis; not inserting hazard",
+            "details": "Backend requires non-null description to insert",
+            "analysis": analysis
+        }), 422
 
     row = {
         "source": "public",
@@ -34,14 +92,18 @@ def submit_image():
         "location": location,
         "lat": lat,
         "lng": lng,
-        "hazard_type": analysis.get("hazard_type"),
-        "severity": analysis.get("severity"),
-        "location_context": analysis.get("location_context"),
-        "description": analysis.get("description"),
-        "projected_repair_cost": analysis.get("projected_repair_cost"),
-        "projected_worsening": analysis.get("projected_worsening"),
-        "future_worsening_description": analysis.get("future_worsening_description"),
+        # Optional AI fields — omit if unavailable so DB defaults apply
+        "hazard_type": (analysis.get("hazard_type") if isinstance(analysis, dict) else None),
+        "severity": severity,
+        "location_context": (analysis.get("location_context") if isinstance(analysis, dict) else None),
+        "description": description,
+        "projected_repair_cost": (analysis.get("projected_repair_cost") if isinstance(analysis, dict) else None),
+        "projected_worsening": (analysis.get("projected_worsening") if isinstance(analysis, dict) else None),
+        "future_worsening_description": (analysis.get("future_worsening_description") if isinstance(analysis, dict) else None),
     }
+
+    # Drop None values so Postgres uses column defaults and avoids NOT NULL violations
+    row = {k: v for k, v in row.items() if v is not None}
 
     try:
         supabase.table("hazards").insert(row).execute()
@@ -159,4 +221,4 @@ def survey():
     }), 202
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=True, port=5001)
