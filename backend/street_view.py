@@ -9,7 +9,10 @@ from typing import List, Tuple, Optional
 
 import requests
 from tqdm import tqdm
-
+import tempfile
+import shutil
+import tempfile
+import shutil
 
 STREET_VIEW_IMAGE_URL = "https://maps.googleapis.com/maps/api/streetview"
 STREET_VIEW_METADATA_URL = "https://maps.googleapis.com/maps/api/streetview/metadata"
@@ -285,6 +288,40 @@ def main():
         max_per_minute=args.max_per_minute,
         max_requests=args.max_requests,
     )
+
+def generate_folder(lat_min, lat_max, lon_min, lon_max, grid_step: float = 0.002):
+    """Generates a folder of Street View images for a given bounding box."""
+    _ensure_env_loaded()
+    api_key = os.environ.get("GOOGLE_MAPS_API_KEY")
+    if not api_key:
+        raise ValueError("Missing API key. Set GOOGLE_MAPS_API_KEY env var.")
+
+    # Use a temporary directory
+    temp_dir = tempfile.mkdtemp()
+
+    try:
+        # Generate points from bbox
+        points = generate_grid((lat_min, lat_max, lon_min, lon_max), grid_step)
+
+        # Call the existing downloader function
+        run_downloader(
+            api_key=api_key,
+            points=points,
+            output_dir=temp_dir,
+            # Use defaults from parse_args for other params
+            headings=[0, 90, 180, 270],
+            size=(640, 640),
+            fov=90,
+            pitch=0,
+            use_metadata=True,
+            max_per_minute=60,
+            max_requests=None,
+        )
+        return temp_dir
+    except Exception as e:
+        # Clean up the temporary directory in case of an error
+        shutil.rmtree(temp_dir)
+        raise e
 
 
 if __name__ == "__main__":

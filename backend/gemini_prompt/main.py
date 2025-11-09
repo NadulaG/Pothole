@@ -30,8 +30,10 @@ def analyze_hazard_image(url: str, location: str) -> dict:
     Projected repair cost is estimated based on the severity and typical repair costs for similar hazards. 
     Include a brief reason (max two sentences).
 
-    If model is not a hazard or is clearly not realisitic, return an error (do not return JSON).
-
+    If model is not a clear road or safety hazard or is clearly not realisitic, return an error (do not return JSON).
+    For hazard_type, first consider classifying the hazard into one of the following categories:
+    - pothole, flooding, debris, damaged_signage
+    Otherwise, return your own classification in hazard_type. 
     JSON schema:
     {{
       "hazard_type": string,
