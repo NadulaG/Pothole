@@ -216,7 +216,6 @@ def process_survey_in_background(lat_min, lat_max, lon_min, lon_max, grid_step, 
             except Exception as e:
                 failures.append({"filename": fname, "error": str(e)})
 
-    print(failures)
     print(f"Survey processing finished. Inserted: {len(inserted)}, Failed: {len(failures)}")
 
     # Update surveys table when background job completes
