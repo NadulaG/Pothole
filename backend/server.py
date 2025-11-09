@@ -24,6 +24,7 @@ def submit_image():
 
 
     row = {
+        "source": "public",
         "images": [url],
         "location": location,
         "lat": lat,
