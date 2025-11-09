@@ -4,17 +4,37 @@ from coord_to_address import coord_to_address
 from supabase import create_client, Client
 from dotenv import load_dotenv
 import os
+from flask_cors import CORS
 
-# Initialize
+load_dotenv()
+
+# Initialize Supabase
 url = "https://yyhtlfhxygvdqihdyoym.supabase.co"
 key = os.getenv("SUPABASE_KEY")
 supabase: Client = create_client(url, key)
 
 app = Flask(__name__)
 
-# Example: POST endpoint
-@app.route('/submit', methods=['POST'])
+# CORS: allow Vite dev ports and handle preflight
+CORS(
+    app,
+    origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
+    ],
+    supports_credentials=True,
+    allow_headers=["Content-Type", "Authorization"],
+    methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+)
+
+# Example: POST endpoint (with preflight support)
+@app.route('/submit', methods=['POST', 'OPTIONS'])
 def submit_image(): 
+    if request.method == 'OPTIONS':
+        # Flask-CORS should handle this, but explicitly return OK to avoid 403s
+        return ('', 204)
     data = request.get_json()
     url = data.get("url")
     lat = data.get("lat")
@@ -47,4 +67,4 @@ def submit_image():
     return analysis # Return the analysis result as JSON
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=True, port=5001)
