@@ -36,6 +36,8 @@ function GovInner() {
   const [uiMsg, setUiMsg] = useState("");
   const [drawStep, setDrawStep] = useState(0); // 0 idle, 1 choose type, 2 draw
   const [helpOpen, setHelpOpen] = useState(false); // help overlay toggle
+  const [analysisOpen, setAnalysisOpen] = useState(false); // full analysis modal toggle
+  const [analysisHazard, setAnalysisHazard] = useState(null); // selected hazard for analysis
 
   // Dynamic filter options and helpers
   const typeStats = useMemo(() => {
@@ -147,6 +149,19 @@ function GovInner() {
         opacity: 0.9,
         fillOpacity: 0.9,
       }).bindPopup(popupHtml(h));
+      // Attach handler to open full analysis modal from popup button
+      m.on("popupopen", (e) => {
+        try {
+          const container = e?.popup?._container || e?.popup?.getElement?.();
+          const btn = container?.querySelector?.(".gov-full-analysis-btn");
+          if (btn) {
+            btn.addEventListener("click", () => {
+              setAnalysisHazard(h);
+              setAnalysisOpen(true);
+            });
+          }
+        } catch (_) {}
+      });
       m.addTo(lg);
       markersRef.current.push(m);
     });
@@ -157,7 +172,16 @@ function GovInner() {
       Array.isArray(h.images) && h.images.length
         ? `<img src="${h.images[0]}" style="max-height:120px; margin-top:8px"/>`
         : "";
-    return `<div><strong>${h.hazard_type}</strong> · sev ${h.severity} · ${h.source}<br/>status ${h.status}<br/>${img}</div>`;
+    return `<div>
+      <strong>${h.hazard_type}</strong> · sev ${h.severity} · ${h.source}<br/>
+      status ${h.status}<br/>
+      ${img}
+      <div style="margin-top:8px">
+        <button type="button" class="cursor-pointer px-2 py-1 rounded text-sm bg-[#2f4a2f] text-white hover:bg-[#3b5d3b] gov-full-analysis-btn" data-hid="${h.id}">
+          View Details
+        </button>
+      </div>
+    </div>`;
   };
 
   const severityColor = (s) => {
@@ -615,7 +639,98 @@ function GovInner() {
             </div>
           </div>
         )}
-        <div id="gov-map" className="h-[calc(100vh-56px)]" />
+      <div id="gov-map" className="h-[calc(100vh-56px)]" />
+      {/* Full Analysis Modal */}
+      {analysisOpen && analysisHazard && (
+        <div className="fixed inset-0 flex items-center justify-center z-[1000]">
+          <div className="absolute inset-0 bg-black/30" onClick={() => { setAnalysisOpen(false); setAnalysisHazard(null); }} />
+          <div className="relative bg-white rounded-md shadow-lg w-[92%] max-w-4xl p-4 max-h-[80vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-3">
+              <div className="font-semibold text-lg">
+                Hazard Analysis
+              </div>
+              <button
+                aria-label="Close analysis"
+                className="px-2 py-1 rounded bg-gray-200 hover:bg-gray-300 cursor-pointer"
+                onClick={() => { setAnalysisOpen(false); setAnalysisHazard(null); }}
+              >
+                Close
+              </button>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2 text-sm text-gray-800">
+              <div className="grid gap-3">
+                <div className="grid gap-1">
+                  <div className="font-semibold">Overview</div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="inline-flex items-center rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 text-xs">
+                      Severity {typeof analysisHazard.severity === "number" ? analysisHazard.severity : "—"}
+                    </span>
+                    <span className="inline-flex items-center rounded-full bg-slate-100 text-slate-700 px-2 py-0.5 text-xs">
+                      Status: {analysisHazard.status || "—"}
+                    </span>
+                    <span className="inline-flex items-center rounded-full bg-indigo-100 text-indigo-700 px-2 py-0.5 text-xs">
+                      Source: {analysisHazard.source || "—"}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="font-medium">Type:</span> {analysisHazard.hazard_type || "—"}
+                  </div>
+                  <div>
+                    <span className="font-medium">Address:</span> {analysisHazard.location || "—"}
+                    {typeof analysisHazard.lat === "number" && typeof analysisHazard.lng === "number" && (
+                      <a
+                        href={`https://www.google.com/maps?q=${analysisHazard.lat},${analysisHazard.lng}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="ml-2 text-blue-600 hover:underline"
+                      >
+                        View on Google Maps
+                      </a>
+                    )}
+                  </div>
+                  <div>
+                    <span className="font-medium">Created:</span> {analysisHazard.created_at ? new Date(analysisHazard.created_at).toLocaleString() : "—"}
+                  </div>
+                </div>
+
+                <div className="grid gap-1">
+                  <div className="font-semibold">Breakdown</div>
+                  <div>
+                    <span className="font-medium">Description:</span> {analysisHazard.description || "—"}
+                  </div>
+                  <div>
+                    <span className="font-medium">Location Context:</span> {analysisHazard.location_context || "—"}
+                  </div>
+                  <div>
+                    <span className="font-medium">Projected Repair Cost:</span> {typeof analysisHazard.projected_repair_cost === "number"
+                      ? new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(analysisHazard.projected_repair_cost)
+                      : analysisHazard.projected_repair_cost || "—"}
+                  </div>
+                  <div>
+                    <span className="font-medium">Projected Worsening:</span> {analysisHazard.projected_worsening || "—"}
+                  </div>
+                  <div>
+                    <span className="font-medium">Future Worsening Description:</span> {analysisHazard.future_worsening_description || "—"}
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid gap-2">
+                <div className="font-semibold">Image</div>
+                {Array.isArray(analysisHazard.images) && analysisHazard.images.length ? (
+                  <img
+                    src={analysisHazard.images[0]}
+                    alt="hazard"
+                    className="w-full max-h-[60vh] object-contain rounded border border-[#e2d9c9]"
+                  />
+                ) : (
+                  <div className="text-xs text-gray-600">No image available.</div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       </div>
     </div>
   );
