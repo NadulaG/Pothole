@@ -9,6 +9,7 @@ export default function Report() {
   const [file, setFile] = useState(null);
   const [imageUrl, setImageUrl] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [uiMsg, setUiMsg] = useState("");
   const mapRef = useRef(null);
   const markerRef = useRef(null);
   const [maxStep, setMaxStep] = useState(1); // reveal up to step 2
@@ -115,12 +116,25 @@ export default function Report() {
       return;
     }
     setSubmitting(true);
+    setUiMsg("");
     try {
       const res = await fetch("http://localhost:5001/submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: imageUrl, lat: pos.lat, lng: pos.lng }),
       });
+      if (res.status === 422) {
+        // Backend indicates the image is not believed to contain a hazard
+        let details = "";
+        try {
+          const payload = await res.json();
+          details = payload?.details || "";
+        } catch (_) {}
+        setSubmitting(false);
+        setUiMsg("This photo doesn't appear to show a road hazard. Please try a different photo or adjust the location."
+        );
+        return;
+      }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const analysis = await res.json();
       setSubmitting(false);
@@ -168,6 +182,11 @@ export default function Report() {
           <h2 className="font-semibold mb-2 text-[#2f3e2f]">
             Confirm Location
           </h2>
+          {uiMsg && (
+            <div className="mb-3 p-3 rounded border border-[#c9c1ad] bg-[#fff8e6] text-[#5a5a50]">
+              {uiMsg}
+            </div>
+          )}
           {gpsNotice && (
             <div className="text-sm mb-2 text-[#5a5a50]">{gpsNotice}</div>
           )}
