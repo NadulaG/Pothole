@@ -11,7 +11,6 @@ import re
 import json
 import threading
 from flask_cors import CORS
-import re
 
 load_dotenv()
 
