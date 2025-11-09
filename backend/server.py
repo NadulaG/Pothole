@@ -131,23 +131,5 @@ def survey():
 
     return "Survey endpoint - not implemented yet"
 
-def generate_folder(lat_min, lat_max, lon_min, lon_max):
-    """Generates a folder of Street View images for a given bounding box."""
-    bbox = (lat_min, lat_max, lon_min, lon_max)
-    temp_dir = tempfile.mkdtemp()
-
-    try:
-        download_grid_images(
-            api_key=os.environ.get("GOOGLE_MAPS_API_KEY"),
-            bbox=bbox,
-            output_dir=temp_dir,
-            headings=[0, 90, 180, 270]
-        )
-        return temp_dir
-    except Exception as e:
-        # Clean up the temporary directory in case of an error
-        shutil.rmtree(temp_dir)
-        raise e
-
 if __name__ == '__main__':
     app.run(debug=True, port=5001)
