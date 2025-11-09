@@ -1,51 +1,61 @@
 import google.generativeai as genai
 import requests
-import json
+from dotenv import load_dotenv
+import os
 
-# Configure your API key
-genai.configure(api_key="AIzaSyChXpR_lGdFNk8jEUB_wjky0AMPpN5Di8A")
+load_dotenv()  # Load environment variables from .env file
 
-# Image URL
-image_url = "https://yyhtlfhxygvdqihdyoym.supabase.co/storage/v1/object/sign/hazard-images/f21cef12-51f6-4f83-83e6-b18c8de020d9-MicrosoftTeams-image_32.jpg?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV9iM2NmM2YzZS02MjE0LTQ3YzQtYmQwNC01ZTI1ZjU1ZjFlYjkiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJoYXphcmQtaW1hZ2VzL2YyMWNlZjEyLTUxZjYtNGY4My04M2U2LWIxOGM4ZGUwMjBkOS1NaWNyb3NvZnRUZWFtcy1pbWFnZV8zMi5qcGciLCJpYXQiOjE3NjI2MzQyNjUsImV4cCI6MTc2MzIzOTA2NX0.dtJ48z35essqnjvRXZxoAnP2lDvvlwXUlO9RsnWVyAQ"
 
-# Fetch the image bytes
-resp = requests.get(image_url)
-resp.raise_for_status()
+# Configure Gemini API key once
+genai.configure(api_key=os.getenv("NADULAS_GEMINI_API_KEY"))
 
-# Use Gemini 2.5 Flash for low-cost, multimodal analysis
-model = genai.GenerativeModel("gemini-2.5-flash")
+def analyze_hazard_image(url: str, location: str) -> dict:
+    """Analyzes a road hazard image via Gemini 2.5 Flash and returns parsed JSON."""
+    
+    # 1. Fetch image bytes
+    resp = requests.get(url)
+    resp.raise_for_status()
+    
+    # 2. Prepare model and prompt
+    model = genai.GenerativeModel("gemini-2.5-flash")
 
-# Prompt: tell it to return pure JSON
-prompt = """
-Analyze this road image and return **only** valid JSON.
-The location of this image is: "2440, 85th Street, Brooklyn, New York USA".
-location_context should not include the address, but rather a description of the surroundings (e.g., "residential area", "near a school", "highway").
-Severity is based on the size of the hazard and its potential damage from 0 (no hazard) to 10 (extreme hazard).
-Projected worsening is categorized as "none", "slow", "moderate", or "rapid" based on the current state of the hazard and typical progression patterns.
-For projected worsening, consider factors such as the current size of the weather conditions and traffic patterns of the location.
-Projected repair cost is estimated based on the severity and typical repair costs for similar hazards. 
-Please also include a description of why the projected repair cost is what it is. Be concise: no more than 2 sentences.
+    prompt = f"""
+    Analyze this road image and return **only** valid JSON.
+    The location of this image is: {location}.
+    location_context should not include the address, but rather a description of the surroundings 
+    (e.g., "residential area", "near a school", "highway").
+    Severity is based on the size of the hazard and its potential damage from 0 (no hazard) to 10 (extreme hazard).
+    Projected worsening is categorized as "none", "slow", "moderate", or "rapid" based on the current state of the hazard 
+    and typical progression patterns.
+    Projected repair cost is estimated based on the severity and typical repair costs for similar hazards. 
+    Include a brief reason (max two sentences).
 
-JSON schema:
-{
-  
-  "hazard_type": string,
-  "severity": number,
-  "pop_density": string,
-  "location_context": string,
-  "description": string,
-  "projected_repair_cost": number,
-  "projected_worsening": string,
-  "future_worsening_description": string
-}
-Do not include any text before or after the JSON.
-"""
+    If model is not a hazard or is clearly not realisitic, return an error (do not return JSON).
 
-# Send text + image
-result = model.generate_content([
-    {"text": prompt},
-    {"inline_data": {"mime_type": "image/jpeg", "data": resp.content}}
-])
+    JSON schema:
+    {{
+      "hazard_type": string,
+      "severity": number,
+      "location_context": string,
+      "description": string,
+      "projected_repair_cost": number,
+      "projected_worsening": string,
+      "future_worsening_description": string
+    }}
+    Return only JSON — no markdown or explanations.
+    """
 
-# Print raw model output
-print("Raw response:\n", result.text)
+    # 3. Generate content
+    result = model.generate_content([
+        {"text": prompt},
+        {"inline_data": {"mime_type": "image/jpeg", "data": resp.content}}
+    ])
+
+    # 4. Try parsing the result into JSON
+    try:
+        import json
+        data = json.loads(result.text)
+        return data
+    except Exception:
+        # Return raw text if JSON parse fails
+        return {"error": "Model did not return valid JSON", "raw_output": result.text}
