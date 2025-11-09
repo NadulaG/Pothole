@@ -11,6 +11,7 @@ import re
 import json
 import threading
 from flask_cors import CORS
+from datetime import datetime, timezone
 
 load_dotenv()
 
@@ -120,7 +121,7 @@ def _to_float(name, val):
     except (TypeError, ValueError):
         raise BadRequest(f"Missing/invalid '{name}'")
 
-def process_survey_in_background(lat_min, lat_max, lon_min, lon_max, grid_step):
+def process_survey_in_background(lat_min, lat_max, lon_min, lon_max, grid_step, survey_id=None):
     # 1) Generate Street View images into a folder (your existing function)
     folder_path = generate_folder(lat_min, lat_max, lon_min, lon_max, grid_step)
 
@@ -218,6 +219,21 @@ def process_survey_in_background(lat_min, lat_max, lon_min, lon_max, grid_step):
     print(failures)
     print(f"Survey processing finished. Inserted: {len(inserted)}, Failed: {len(failures)}")
 
+    # Update surveys table when background job completes
+    if survey_id:
+        try:
+            supabase\
+                .from_("surveys")\
+                .update({
+                    "status": "complete",
+                    "hazards_found": len(inserted),
+                    "completed_at": datetime.now(timezone.utc).isoformat()
+                })\
+                .eq("id", survey_id)\
+                .execute()
+        except Exception as e:
+            print("[Supabase Error] Failed to update survey status:", e)
+
 @app.route('/survey', methods=['POST'])
 def survey():
     data = request.get_json(silent=True) or {}
@@ -228,12 +244,16 @@ def survey():
     lon_min = _to_float('lng_min/lon_min', data.get('lon_min', data.get('lng_min')))
     lon_max = _to_float('lng_max/lon_max', data.get('lon_max', data.get('lng_max')))
     grid_step = float(data.get('grid_step', 0.005))  # ≈100m of latitude
+    survey_id = data.get('survey_id')
 
     # normalize bounds if user swapped them
     if lat_min > lat_max: lat_min, lat_max = lat_max, lat_min
     if lon_min > lon_max: lon_min, lon_max = lon_max, lon_min
 
-    thread = threading.Thread(target=process_survey_in_background, args=(lat_min, lat_max, lon_min, lon_max, grid_step))
+    thread = threading.Thread(
+        target=process_survey_in_background,
+        args=(lat_min, lat_max, lon_min, lon_max, grid_step, survey_id)
+    )
     thread.start()
 
     return jsonify({

@@ -143,29 +143,53 @@ function GovInner() {
     const lg = layerGroupRef.current;
     lg.clearLayers();
     markersRef.current = [];
+
+    // Group hazards by exact coordinate to handle overlapping points
+    const groups = new Map();
     rows.forEach((h) => {
-      const m = Leaflet.circleMarker([h.lat, h.lng], {
+      const key = `${h.lat},${h.lng}`;
+      const arr = groups.get(key);
+      if (arr) {
+        arr.push(h);
+      } else {
+        groups.set(key, [h]);
+      }
+    });
+
+    groups.forEach((group) => {
+      const { lat, lng } = { lat: group[0].lat, lng: group[0].lng };
+      const maxSeverity = Math.max(
+        ...group.map((g) => (typeof g.severity === "number" ? g.severity : Number(g.severity) || 0))
+      );
+
+      const marker = Leaflet.circleMarker([lat, lng], {
         radius: 6,
-        color: severityColor(h.severity),
+        color: severityColor(maxSeverity),
         weight: 2,
         opacity: 0.9,
         fillOpacity: 0.9,
-      }).bindPopup(popupHtml(h));
-      // Attach handler to open full analysis modal from popup button
-      m.on("popupopen", (e) => {
+      }).bindPopup(group.length > 1 ? popupHtmlMulti(group) : popupHtml(group[0]));
+
+      // Attach handlers for opening full analysis from popup buttons (single or multi)
+      marker.on("popupopen", (e) => {
         try {
           const container = e?.popup?._container || e?.popup?.getElement?.();
-          const btn = container?.querySelector?.(".gov-full-analysis-btn");
-          if (btn) {
+          const btns = container?.querySelectorAll?.(".gov-full-analysis-btn");
+          btns?.forEach((btn) => {
             btn.addEventListener("click", () => {
-              setAnalysisHazard(h);
+              const hid = btn?.getAttribute?.("data-hid");
+              const target = group.length > 1
+                ? group.find((g) => String(g.id) === String(hid)) || group[0]
+                : group[0];
+              setAnalysisHazard(target);
               setAnalysisOpen(true);
             });
-          }
+          });
         } catch (_) {}
       });
-      m.addTo(lg);
-      markersRef.current.push(m);
+
+      marker.addTo(lg);
+      markersRef.current.push(marker);
     });
   };
 
@@ -184,6 +208,30 @@ function GovInner() {
         </button>
       </div>
     </div>`;
+  };
+
+  // Popup for multiple hazards at the same location
+  const popupHtmlMulti = (arr) => {
+    const items = arr
+      .map((h) => {
+        const img = Array.isArray(h.images) && h.images.length
+          ? `<img src="${h.images[0]}" style="max-height:80px; margin-top:6px"/>`
+          : "";
+        return `
+          <div style="padding:6px 0; border-top:1px solid #eee">
+            <div><strong>${h.hazard_type}</strong> · sev ${h.severity} · ${h.source} · status ${h.status}</div>
+            ${img}
+            <div style="margin-top:6px">
+              <button type="button" class="cursor-pointer px-2 py-1 rounded text-sm bg-[#2f4a2f] text-white hover:bg-[#3b5d3b] gov-full-analysis-btn" data-hid="${h.id}">View Details</button>
+            </div>
+          </div>`;
+      })
+      .join("");
+    return `
+      <div>
+        <div><strong>${arr.length}</strong> hazards at this location</div>
+        ${items}
+      </div>`;
   };
 
   const severityColor = (s) => {
@@ -385,6 +433,31 @@ function GovInner() {
     }
     try {
       setSurveySubmitting(true);
+      // Block starting a new survey if one is already running for this user
+      const { data: { session } } = await supabase.auth.getSession();
+      const uid = session?.user?.id;
+      if (!uid) throw new Error("Not signed in.");
+      const { data: running, error: runErr } = await supabase
+        .from("surveys")
+        .select("id")
+        .eq("created_by", uid)
+        .eq("status", "running")
+        .limit(1);
+      if (runErr) throw new Error(`Status check failed: ${runErr.message}`);
+      if (Array.isArray(running) && running.length > 0) {
+        setSurveyRunning(true);
+        setUiMsg("A survey is already running for your account. Please wait for it to complete.");
+        return; // stop here
+      }
+      // 1) Insert survey row with bbox polygon, created_by, and running status
+      const { data: inserted, error: insertErr } = await supabase
+        .from("surveys")
+        .insert({ polygon_geojson: selectedPolygon, status: "running", created_by: uid })
+        .select("id")
+        .single();
+      if (insertErr) throw new Error(`Insert failed: ${insertErr.message}`);
+      const surveyId = inserted?.id;
+
       // Compute bounding box from selected polygon (array of [lng, lat])
       const coords = Array.isArray(selectedPolygon?.coordinates)
         ? selectedPolygon.coordinates[0] || []
@@ -400,12 +473,11 @@ function GovInner() {
       const res = await fetch("http://localhost:5001/survey", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lat_min, lon_min, lat_max, lon_max }),
+        body: JSON.stringify({ lat_min, lon_min, lat_max, lon_max, survey_id: surveyId }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       if (data && data.ok === true) {
-        setSurveyRunning(true);
         setUiMsg("Survey processing started in the background.");
       } else {
         setUiMsg("Survey call completed but did not indicate success.");
@@ -416,6 +488,33 @@ function GovInner() {
       setSurveySubmitting(false);
     }
   };
+
+  // Poll for any running surveys created by current user and reflect spinner
+  useEffect(() => {
+    let cancel = false;
+    let timer = null;
+    const check = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const uid = session?.user?.id;
+        if (!uid) { if (!cancel) setSurveyRunning(false); return; }
+        const { data, error } = await supabase
+          .from("surveys")
+          .select("id,status")
+          .eq("created_by", uid)
+          .eq("status", "running")
+          .limit(1);
+        if (error) { console.warn("Survey status poll error:", error.message); }
+        if (!cancel) setSurveyRunning(Array.isArray(data) && data.length > 0);
+      } catch (e) {
+        console.warn("Survey status poll exception:", e);
+        if (!cancel) setSurveyRunning(false);
+      }
+    };
+    check();
+    timer = setInterval(check, 5000);
+    return () => { cancel = true; if (timer) clearInterval(timer); };
+  }, []);
 
   return (
     <div className="grid grid-cols-12 gap-0">
@@ -504,14 +603,24 @@ function GovInner() {
         </div>
         <hr className="border-t border-[#c9c1ad]" />
         <div className="font-semibold mb-2">Virtual Survey</div>
+        {surveyRunning && (
+          <div className="flex items-center gap-2 text-sm text-gray-700 mb-2">
+            <span className="inline-block w-4 h-4 border-2 border-gray-300 border-t-[#2f4a2f] rounded-full animate-spin" />
+            <span>Survey in progress… analyzing in background</span>
+          </div>
+        )}
         {drawStep === 0 && (
-          <div>
+          <div className="space-y-2">
             <button
-              className="px-3 py-2 rounded bg-[#2f4a2f] text-white cursor-pointer"
+              className="px-3 py-2 rounded bg-[#2f4a2f] text-white cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
               onClick={startSurveyFlow}
+              disabled={surveyRunning}
             >
               Start Virtual Survey
             </button>
+            {surveyRunning && (
+              <div className="text-xs text-gray-600">A survey is already running for your account.</div>
+            )}
           </div>
         )}
         {drawStep === 1 && (
@@ -519,8 +628,9 @@ function GovInner() {
             <div className="font-semibold">Select Area</div>
             <div className="flex gap-2 flex-wrap">
               <button
-                className="px-3 py-2 rounded bg-[#2f4a2f] text-white cursor-pointer"
+                className="px-3 py-2 rounded bg-[#2f4a2f] text-white cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
                 onClick={() => chooseMode("box")}
+                disabled={surveyRunning}
               >
                 Bounding Box
               </button>
@@ -530,6 +640,9 @@ function GovInner() {
               >
                 Cancel
               </button>
+              {surveyRunning && (
+                <div className="text-xs text-gray-600">A survey is already running for your account.</div>
+              )}
             </div>
           </div>
         )}
@@ -537,12 +650,7 @@ function GovInner() {
           <div className="space-y-2">
             <div className="font-semibold">Draw Selected Area</div>
             {uiMsg && <div className="text-sm text-gray-700 mt-1">{uiMsg}</div>}
-            {surveyRunning && (
-              <div className="flex items-center gap-2 text-sm text-gray-700">
-                <span className="inline-block w-4 h-4 border-2 border-gray-300 border-t-[#2f4a2f] rounded-full animate-spin" />
-                <span>Survey in progress… analyzing in background</span>
-              </div>
-            )}
+            {/* Spinner moved above Virtual Survey panel to show regardless of drawStep */}
             <div className="flex gap-2 flex-wrap">
               <button
                 className="px-3 py-2 rounded bg-gray-500 text-white"
