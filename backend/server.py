@@ -78,10 +78,10 @@ def submit_image():
     severity = _normalize_severity(analysis.get("severity")) if isinstance(analysis, dict) else None
     description = (analysis.get("description") if isinstance(analysis, dict) else None)
 
-    # Do not insert any row where description is null/missing
-    if description is None:
+    # Do not insert any row where description is missing or empty
+    if (description is None) or (not isinstance(description, str)) or (description.strip() == ""):
         return jsonify({
-            "error": "Description missing from analysis; not inserting hazard",
+            "error": "Description missing or empty; not inserting hazard",
             "details": "Backend requires non-null description to insert",
             "analysis": analysis
         }), 422
@@ -169,23 +169,43 @@ def process_survey_in_background(lat_min, lat_max, lon_min, lon_max, grid_step):
                     except Exception:
                         analysis = {}
 
-                # 5) Build and insert row in hazards table
+                # 5) Build and insert row in hazards table (match DB schema)
+                # Inline normalization: clamp severity to int within [0, 10]
+                raw_severity = analysis.get("severity") if isinstance(analysis, dict) else None
+                severity = None
+                if raw_severity is not None:
+                    try:
+                        severity = int(round(float(raw_severity)))
+                        if severity < 0:
+                            severity = 0
+                        if severity > 10:
+                            severity = 10
+                    except Exception:
+                        severity = None
+
+                # Skip insert if description is missing or empty
+                desc = analysis.get("description") if isinstance(analysis, dict) else None
+                if (desc is None) or (not isinstance(desc, str)) or (desc.strip() == ""):
+                    failures.append({"filename": fname, "error": "Empty description from analysis; not inserting"})
+                    continue
+
                 row = {
-                    "source": "streetview",
-                    "image_url": image_url,         # <- single URL column is simplest
+                    "source": "survey",
+                    "images": [image_url],
                     "lat": lat,
-                    "lon": lon,
-                    "heading": hdg,
+                    "lng": lon,
                     "location": location,
-                    "hazard_type": analysis.get("hazard_type"),
-                    "severity": analysis.get("severity"),
-                    "location_context": analysis.get("location_context"),
-                    "description": analysis.get("description"),
-                    "projected_repair_cost": analysis.get("projected_repair_cost"),
-                    "projected_worsening": analysis.get("projected_worsening"),
-                    "future_worsening_description": analysis.get("future_worsening_description"),
-                    "storage_path": storage_path,   # useful if you need to manage files later
+                    "hazard_type": (analysis.get("hazard_type") if isinstance(analysis, dict) else None),
+                    "severity": severity,
+                    "location_context": (analysis.get("location_context") if isinstance(analysis, dict) else None),
+                    "description": desc,
+                    "projected_repair_cost": (analysis.get("projected_repair_cost") if isinstance(analysis, dict) else None),
+                    "projected_worsening": (analysis.get("projected_worsening") if isinstance(analysis, dict) else None),
+                    "future_worsening_description": (analysis.get("future_worsening_description") if isinstance(analysis, dict) else None),
                 }
+
+                # Drop None values so Postgres uses column defaults
+                row = {k: v for k, v in row.items() if v is not None}
 
                 resp = supabase.table("hazards").insert(row).execute()
                 inserted.append(resp.data[0] if resp.data else row)
@@ -195,6 +215,7 @@ def process_survey_in_background(lat_min, lat_max, lon_min, lon_max, grid_step):
             except Exception as e:
                 failures.append({"filename": fname, "error": str(e)})
 
+    print(failures)
     print(f"Survey processing finished. Inserted: {len(inserted)}, Failed: {len(failures)}")
 
 @app.route('/survey', methods=['POST'])
