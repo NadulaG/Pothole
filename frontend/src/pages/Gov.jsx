@@ -38,6 +38,8 @@ function GovInner() {
   const [helpOpen, setHelpOpen] = useState(false); // help overlay toggle
   const [analysisOpen, setAnalysisOpen] = useState(false); // full analysis modal toggle
   const [analysisHazard, setAnalysisHazard] = useState(null); // selected hazard for analysis
+  const [surveySubmitting, setSurveySubmitting] = useState(false); // calling backend
+  const [surveyRunning, setSurveyRunning] = useState(false); // background survey indicator
 
   // Dynamic filter options and helpers
   const typeStats = useMemo(() => {
@@ -378,44 +380,40 @@ function GovInner() {
 
   const startSurvey = async () => {
     if (!selectedPolygon) {
-      alert("Please draw a bounding box or polygon first.");
+      alert("Please draw a bounding box first.");
       return;
     }
-    let surveyId = null;
     try {
-      const { data: survey, error } = await supabase
-        .from("surveys")
-        .insert({
-          polygon_geojson: selectedPolygon,
-          status: "running",
-          hazards_found: 0,
-        })
-        .select("*")
-        .single();
-      if (error) {
-        console.warn(
-          "Survey insert skipped due to RLS or other error:",
-          error.message
-        );
-      } else {
-        surveyId = survey.id;
-      }
-    } catch (_e) {}
+      setSurveySubmitting(true);
+      // Compute bounding box from selected polygon (array of [lng, lat])
+      const coords = Array.isArray(selectedPolygon?.coordinates)
+        ? selectedPolygon.coordinates[0] || []
+        : [];
+      if (!coords.length) throw new Error("Invalid selection coordinates.");
+      const lats = coords.map((c) => c[1]);
+      const lngs = coords.map((c) => c[0]);
+      const lat_min = Math.min(...lats);
+      const lat_max = Math.max(...lats);
+      const lon_min = Math.min(...lngs);
+      const lon_max = Math.max(...lngs);
 
-    const endpoint = import.meta.env.VITE_SURVEY_ENDPOINT ?? "/api/surveys/run";
-    try {
-      const res = await fetch(endpoint, {
+      const res = await fetch("http://localhost:5001/survey", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          polygon_geojson: selectedPolygon,
-          survey_id: surveyId,
-        }),
+        body: JSON.stringify({ lat_min, lon_min, lat_max, lon_max }),
       });
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setUiMsg("Survey triggered successfully.");
+      if (data && data.ok === true) {
+        setSurveyRunning(true);
+        setUiMsg("Survey processing started in the background.");
+      } else {
+        setUiMsg("Survey call completed but did not indicate success.");
+      }
     } catch (err) {
-      setUiMsg(`Failed to call endpoint: ${err.message}`);
+      setUiMsg(`Failed to start survey: ${err.message}`);
+    } finally {
+      setSurveySubmitting(false);
     }
   };
 
@@ -518,19 +516,13 @@ function GovInner() {
         )}
         {drawStep === 1 && (
           <div className="space-y-2">
-            <div className="font-semibold">Select Area Type</div>
+            <div className="font-semibold">Select Area</div>
             <div className="flex gap-2 flex-wrap">
               <button
                 className="px-3 py-2 rounded bg-[#2f4a2f] text-white cursor-pointer"
                 onClick={() => chooseMode("box")}
               >
                 Bounding Box
-              </button>
-              <button
-                className="px-3 py-2 rounded bg-[#2f4a2f] text-white cursor-pointer"
-                onClick={() => chooseMode("polygon")}
-              >
-                Polygon
               </button>
               <button
                 className="px-3 py-2 rounded bg-gray-500 text-white cursor-pointer"
@@ -545,15 +537,13 @@ function GovInner() {
           <div className="space-y-2">
             <div className="font-semibold">Draw Selected Area</div>
             {uiMsg && <div className="text-sm text-gray-700 mt-1">{uiMsg}</div>}
+            {surveyRunning && (
+              <div className="flex items-center gap-2 text-sm text-gray-700">
+                <span className="inline-block w-4 h-4 border-2 border-gray-300 border-t-[#2f4a2f] rounded-full animate-spin" />
+                <span>Survey in progress… analyzing in background</span>
+              </div>
+            )}
             <div className="flex gap-2 flex-wrap">
-              {drawMode === "polygon" && (
-                <button
-                  className="px-3 py-2 rounded bg-gray-700 text-white"
-                  onClick={finishPolygon}
-                >
-                  Finish Polygon
-                </button>
-              )}
               <button
                 className="px-3 py-2 rounded bg-gray-500 text-white"
                 onClick={clearSelection}
@@ -563,9 +553,9 @@ function GovInner() {
               <button
                 className="px-3 py-2 rounded bg-[#2f4a2f] text-white disabled:opacity-60"
                 onClick={startSurvey}
-                disabled={!selectedPolygon}
+                disabled={!selectedPolygon || surveySubmitting}
               >
-                Submit for Analysis
+                {surveySubmitting ? "Submitting…" : "Submit for Analysis"}
               </button>
               <button
                 className="px-3 py-2 rounded bg-gray-500 text-white"
@@ -620,10 +610,10 @@ function GovInner() {
                 <div>
                   <div className="font-semibold">Virtual Survey</div>
                   <div>
-                    - Click <span className="font-medium">Start Virtual Survey</span>, choose <span className="font-medium">Bounding Box</span> or <span className="font-medium">Polygon</span>.
+                    - Click <span className="font-medium">Start Virtual Survey</span>, then choose <span className="font-medium">Bounding Box</span>.
                   </div>
                   <div>
-                    - Draw your selection on the map. For polygons, add points and click <span className="font-medium">Finish Polygon</span>.
+                    - Draw your selection on the map by clicking to start and clicking again to finish the box.
                   </div>
                   <div>
                     - Use <span className="font-medium">Clear Selection</span> to reset, or <span className="font-medium">Submit for Analysis</span> to trigger a survey.

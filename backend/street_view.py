@@ -181,7 +181,7 @@ def run_downloader(
     fov: int = 90,
     pitch: int = 0,
     use_metadata: bool = True,
-    max_per_minute: int = 60,
+    max_per_minute: int = 30000,
     max_requests: Optional[int] = None,
 ):
     os.makedirs(output_dir, exist_ok=True)
@@ -314,7 +314,7 @@ def generate_folder(lat_min, lat_max, lon_min, lon_max, grid_step: float = 0.002
             fov=90,
             pitch=0,
             use_metadata=True,
-            max_per_minute=60,
+            max_per_minute=30000,
             max_requests=None,
         )
         return temp_dir
