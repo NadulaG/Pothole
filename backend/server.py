@@ -6,9 +6,9 @@ from dotenv import load_dotenv
 from street_view import generate_folder
 import os
 from flask_cors import CORS
+import re
 
 load_dotenv()
-import re
 
 # Initialize
 url = os.getenv("SUPABASE_URL")
